@@ -1,0 +1,123 @@
+#! /bin/bash
+#timesyncd attempts to reach out to ntp.ubuntu.com but hangs because it gets not response, this will speed up overall loadtime.
+#systemctl stop systemd-timesyncd
+#systemctl disable systemd-timesyncd
+# waits for proxy to be up and logs to script.test
+#echo "begin proxy test" >> script.test
+#response=\$$(sudo http_proxy=http://tstark:pssecrocks@172.16.245.222:8888 curl --write-out '%%{http_code}' --silent --output /dev/null www.google.com)
+#while [ \$$response -ne "200" ]; do
+#    echo \$$response >> script.test
+#    sleep 10
+#    response=\$$(sudo http_proxy=http://tstark:pssecrocks@172.16.245.222:8888 curl --write-out '%%{http_code}' --silent --output /dev/null www.google.com)
+#done
+#once a positive 200 response is provided throughthe proxy to google, the peaceinourtime file is reated in the home folder. Note that the other files are created in the root folder.
+#echo "success">> /home/ubuntu/peaceinourtime
+
+
+
+
+#beware of the need to escape characters that terraform uses. https://www.terraform.io/docs/configuration/expressions/strings.html
+
+
+<powershell>
+#persist can work but each script that ran will need to check to see if it was successful or already done first.
+##proxy check
+#Function to pull the ssh key from the s3 bucket, this ssh key is the key used for ever EC2 instance and can be used for a depedency framework. *issues with DC use 4-17
+function key_pull () {
+    #must have cred_init ran prior to running this function in the same boot session!
+    invoke-webrequest -proxy http://172.16.245.222:8888 -proxyCredential $Global:proxy_credential -uri https://securitylab-${guac_auth_password}.s3-us-west-2.amazonaws.com/lab-key -outfile "c:\ProgramData\Amazon\lab-key"
+    $path = "c:\ProgramData\Amazon\lab-key"
+    #this!
+    icacls.exe $path /reset
+    icacls.exe $path /inheritance:r
+    icacls.exe $path /GRANT "$($env:USERNAME):(R)"
+    icacls.exe $path /remove BUILTIN\\BUILTIN
+    #how to fix lab permissions :()
+}
+
+net user Administrator ${win_rdp_password}
+$message2 = "${win_rdp_password}"; $message2 |out-file -append c:/peacinourtime.txt
+
+#disable web protection
+function Disable-ieESC
+{
+    $AdminKey = “HKLM:\SOFTWARE\Microsoft\Active Setup\Installed Components\{A509B1A7-37EF-4b3f-8CFC-4F3A74704073}\”
+    $UserKey = “HKLM:\SOFTWARE\Microsoft\Active Setup\Installed Components\{A509B1A8-37EF-4b3f-8CFC-4F3A74704073}\” 
+    Set-ItemProperty -Path $AdminKey -Name “IsInstalled” -Value 0
+    Set-ItemProperty -Path $UserKey -Name “IsInstalled” -Value 0
+    Stop-Process -Name Explorer
+    Write-Host “IE Enhanced Security Configuration (ESC) has been disabled.” -ForegroundColor Green
+}
+function remove_amznicons () {
+    remove-item "c:\Users\Administrator\Desktop\EC2 Microsoft Windows Guide.website"
+    remove-item "c:\Users\Administrator\Desktop\EC2 Feedback.website"
+}
+
+function clone_labgit ($gituri) {
+    refreshenv
+    #Always follow using "LAB_FILE" folder to then hold all conent the lab or this will fail
+    #Example - https://github.com/ps-interactive/lab_visualizing_network_traffic_wireshark.git
+    $gituri
+    $gitstub = $gituri.split("/")[4].split(".")[0]
+    $gitstub >> c:\peaceinourtime
+    $gitpath1 = 'c:\Users\Administrator\Desktop\'+$gitstub
+    $gitpath1 >> c:\peaceinourtime
+    $gitlist = "-c http.proxy=http://tstark:pssecrocks@172.16.245.222:8888 clone $gituri $gitpath1"
+    $gitlist >> c:\peacinourtime
+    try {start-process  -filepath 'C:\Program Files\git\bin\git.exe' -argumentlist $gitlist -wait -ErrorAction continue}catch{$_ >> c:\peacinourtime }
+    $gitpath2 = 'C:\Users\Administrator\Desktop\'+$gitstub+'\LAB_FILES\'
+    $gitpath2 >> c:\peacinourtime
+    copy-item -recurse $gitpath2 -destination 'c:\Users\Administrator\Desktop\'
+    remove-item -recurse -force $gitpath1
+}
+
+function cred_init()
+{
+    net user Administrator ${win_rdp_password}
+    $global:message2 = "${win_rdp_password}"; $message2 |out-file -append c:/peaceinourtime.txt
+    $global:message3 = "Local Administator Account PW : " + $message2
+    #Establish Proxy Credentials
+    $global:puser = 'tstark'
+    $global:ppass = 'pssecrocks'
+    $global:psecpasswd = ConvertTo-SecureString $ppass -AsPlainText -Force
+    $global:proxy_credential = New-Object System.Management.Automation.PSCredential($puser, $psecpasswd)
+    [system.net.webrequest]::DefaultWebProxy = new-object system.net.webproxy('http://172.16.245.222:8888')
+    $global:webclient = New-Object System.Net.webclient
+    $global:webclient.Proxy.Credentials = $proxy_credential
+    #Establish local system credentails
+    $global:luser = "Administrator"
+    $global:lpass = "${win_rdp_password}"
+    $global:lsecpasswd = ConvertTo-SecureString $lpass -AsPlainText -Force
+    $global:local_credential = New-Object System.Management.Automation.PSCredential($luser, $lsecpasswd)
+    $global:local_credential
+}
+
+#Main
+Disable-ieESC
+$message3 = "IE Enhanced Security Disabled"; $message3 | out-file c:/peaceinourtime.txt -append;
+cred_init
+
+# Set HOSTS file
+$data = get-content "$env:windir\system32\drivers\etc\hosts"
+$data += "172.16.94.10 c1-cp1","172.16.94.11 c1-node1","172.16.94.12 c1-node2","172.16.94.13 c1-node3"
+$data | Out-File "$env:windir\system32\drivers\etc\hosts" -Force
+
+#need if 200 or retry logic then move on
+invoke-webrequest -Proxy http://172.16.245.222:8888 -uri https://chocolatey.org/install.ps1 -Verbose -ProxyCredential $Global:proxy_credential -OutFile install.ps1
+$env:chocolateyProxyLocation='http://tstark:pssecrocks@172.16.245.222:8888'
+$env:chocolateyProxyPassword='pssecrocks'
+$env:chocolateyProxyUser='tstark'
+./install.ps1
+###
+choco install git -y --proxy="172.16.245.222:8888" --proxy-user="tstark" --proxy-password="pssecrocks"
+
+clone_labgit 'https://github.com/ps-interactive/lab_kubernetes_install_config_fundamentals.git'
+
+##Installing things with choco with explicit proxy test is with wireshark
+choco install vscode -y --proxy="172.16.245.222:8888" --proxy-user="tstark" --proxy-password="pssecrocks"
+remove_amznicons
+key_pull
+copy-item "c:\programdata\amazon\lab-key" "c:\Users\Administrator\Desktop"
+$message = "iambecomedeath"; $message | out-file c:/peaceinourtime.txt;
+
+</powershell>
