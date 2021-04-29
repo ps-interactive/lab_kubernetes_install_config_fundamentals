@@ -104,12 +104,19 @@ $env:chocolateyProxyUser='tstark'
 ./install.ps1
 ###
 choco install git -y --proxy="172.16.245.222:8888" --proxy-user="tstark" --proxy-password="pssecrocks"
-
 clone_labgit 'https://github.com/ps-interactive/lab_kubernetes_install_config_fundamentals.git'
 
-##Installing things with choco with explicit proxy test is with wireshark
+##Installing things with choco with explicit proxy
 choco install vscode -y --proxy="172.16.245.222:8888" --proxy-user="tstark" --proxy-password="pssecrocks"
 remove_amznicons
+
+# Write HOSTS File
+# Fix this - mb
+$data = get-content "$env:windir\system32\drivers\etc\hosts"
+$data += "172.16.94.10 c1-cp1","172.16.94.11 c1-node1","172.16.94.12 c1-node2","172.16.94.13 c1-node3"
+$data | Out-File "$env:windir\system32\drivers\etc\hosts" -Force
+
+# SSH Key Pull
 key_pull
 copy-item "c:\programdata\amazon\lab-key" "c:\Users\Administrator\Desktop"
 $message = "iambecomedeath"; $message | out-file c:/peaceinourtime.txt;
